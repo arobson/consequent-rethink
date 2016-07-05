@@ -1,5 +1,5 @@
 var rethinkdb = require( "rethinkdb" );
-var actorStore = require( "./actors" );
+var modelStore = require( "./models" );
 var eventStore = require( "./events" );
 var sliver = require( "sliver" )();
 
@@ -34,7 +34,7 @@ function initialize( config ) {
 
 	var tablePromise = listTables( config, db, connection );
 	return {
-		actor: { create: actorStore.bind( null, sliver, connection, db, tablePromise ) },
+		model: { create: modelStore.bind( null, sliver, connection, db, tablePromise ) },
 		event: { create: eventStore.bind( null, sliver, connection, db, tablePromise ) }
 	}
 }

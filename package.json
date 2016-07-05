@@ -1,6 +1,6 @@
 {
   "name": "consequent-rethink",
-  "version": "1.0.0-3",
+  "version": "1.0.0",
   "description": "Consequent actor and event store adapters for RethinkDB",
   "main": "src/index.js",
   "scripts": {
@@ -31,7 +31,7 @@
   "devDependencies": {
     "chai": "^3.5.0",
     "chai-as-promised": "^5.3.0",
-    "consequent": "0.1.0-1",
+    "consequent": "0.1.0-7",
     "sinon": "^1.17.4",
     "sinon-as-promised": "^4.0.0",
     "sinon-chai": "^2.8.0"

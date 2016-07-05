@@ -3,6 +3,7 @@ var when = require( "when" );
 var sequence = require( "when/sequence" );
 var zlib = require( "zlib" );
 var rethink = require( "rethinkdb" );
+var findModule = require( "./find");
 
 function createTable( connection, db, table, tablePromise, type ) {
 	function onTableListing( results ) {
@@ -14,7 +15,7 @@ function createTable( connection, db, table, tablePromise, type ) {
 				.db( db )
 				.tableCreate( table )
 				.run( client )
-				.then( () => createIndex( client, db, table ) );
+				.then( () => createPrimaryIndex( client, db, table ) );
 		} else {
 			return when( client );
 		}
@@ -24,19 +25,40 @@ function createTable( connection, db, table, tablePromise, type ) {
 		.then( onTableListing );
 }
 
-function createIndex( client, db, table, index ) {
+function createIndices( client, db, table, indices ) {
+	return rethink
+		.db( db )
+		.table( table )
+		.indexList()
+		.run( client )
+		.then( ( list ) => {
+			return when.all( _.map( indices, ( indexName ) => {
+				if( list.indexOf( indexName ) < 0 ) {
+					return rethink
+						.db( db )
+						.table( table )
+						.indexCreate( indexName )
+						.run( client );
+				} else {
+					return when();
+				}
+			} ) );
+		} );
+}
+
+function createPrimaryIndex( client, db, table, index ) {
 	return sequence( [
 		() => rethink
 			.db( db )
 			.table( table )
-			.indexCreate( "actorId" )
+			.indexCreate( "_modelId" )
 			.run( client ),
 		() => rethink
 			.db( db )
 			.table( table )
 			.indexCreate( "instance", [
-				rethink.row( "actorId" ),
-				rethink.row( "vector" )
+				rethink.row( "_modelId" ),
+				rethink.row( "_vector" )
 			] )
 			.run( client ),
 		() => rethink
@@ -48,24 +70,48 @@ function createIndex( client, db, table, index ) {
 	.then( () => client );
 }
 
-function getEventsFor( pending, db, table, actorId, lastEventId ) {
+function findEvents( pending, db, table, criteria, lastEventId ) {
+	return pending.then( ( c ) => 
+		rethink
+			.db( db )
+			.table( table )
+			.between( lastEventId || rethink.minval, rethink.maxval, { index: "id", leftBound: "open" } )
+			.filter( findModule.buildCriteria( criteria ) )
+			.run( c )
+	)
+	.then( ( x ) => x.toArray() );
+}
+
+function getEventsByIndex( pending, db, table, indexName, indexValue, lastEventId ) {
 	return pending.then( ( c ) =>
 		rethink
 			.db( db )
 			.table( table )
 			.between( lastEventId || rethink.minval, rethink.maxval, { index: "id", leftBound: "open" } )
-			.filter( { correlationId: actorId } )
+			.fetch( r.row( indexName ).eq( indexValue ) )
 			.orderBy( rethink.desc( "id" ) )
 			.run( c ) )
 	.then( ( x ) => x.toArray() );
 }
 
-function getEventPackFor( pending, db, table, actorId, vectorClock ) {
+function getEventsFor( pending, db, table, modelId, lastEventId ) {
 	return pending.then( ( c ) =>
 		rethink
 			.db( db )
 			.table( table )
-			.getAll( [ actorId, vectorClock ], { index: "instance" } )
+			.between( lastEventId || rethink.minval, rethink.maxval, { index: "id", leftBound: "open" } )
+			.filter( { _modelId: modelId } )
+			.orderBy( rethink.desc( "id" ) )
+			.run( c ) )
+	.then( ( x ) => x.toArray() );
+}
+
+function getEventPackFor( pending, db, table, modelId, vectorClock ) {
+	return pending.then( ( c ) =>
+		rethink
+			.db( db )
+			.table( table )
+			.getAll( [ modelId, vectorClock ], { index: "instance" } )
 			.limit( 1 )
 			.run( c )
 		)
@@ -83,26 +129,36 @@ function getVersion( vector ) {
 	}, 0 );
 }
 
-function storeEvents( sliver, pending, db, table, actorId, events ) {
+function storeEvents( sliver, pending, db, table, modelId, events ) {
+	var indices = [];
 	var storageFormat = _.map( events, ( e ) => {
-		e.id = e.id || sliver.getId();
-		e.vector = e.vector;
-		e.initiatedById = e.initiatedById;
+		if( e.indexBy ) {
+			_.each( e.indexBy, ( v, k ) => {
+				if( !_.isInteger( k ) && !e[ k ] ) {
+					e[ k ] = v;
+					indices.push( v );
+				} else {
+					indices.push( v );
+				}
+			} );
+		}
 		return _.omitBy( e, ( v ) => !v );
 	} );
-	return pending.then( 
-		( c ) => rethink
+		indices = _.uniq( indices );
+	return pending.then( ( c ) => {
+		createIndices( c, db, table, indices )
+		return rethink
 			.db( db )
 			.table( table )
 			.insert( storageFormat )
 			.run( c ) 
-	);
+	} );
 }
 
-function storeEventPack( sliver, pending, packTable, actorId, vectorClock, events ) {
+function storeEventPack( sliver, pending, packTable, modelId, vectorClock, events ) {
 	var pack = {
 		events,
-		actorId: actorid,
+		modelId: modelid,
 		id: sliver.getId,
 		vector: vectorClock,
 		version: getVersion( vectorClock )

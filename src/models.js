@@ -41,14 +41,14 @@ function createIndex( client, db, table, index ) {
 	.then( () => client );
 }
 
-function fetch( pending, db, table, actorId ) {
+function fetch( pending, db, table, modelId ) {
 	return pending
 		.then( 
 			( c ) => 
 				rethink
 					.db( db )
 					.table( table )
-					.getAll( actorId, { index: "id" } )
+					.getAll( modelId, { index: "id" } )
 					.orderBy( rethink.desc( "snapshotId" ) )
 					.limit( 1 )
 					.run( c )
@@ -61,7 +61,7 @@ function fetch( pending, db, table, actorId ) {
 		);
 }
 
-function findAncestor( client, db, table, type, actorId ) {
+function findAncestor( client, db, table, type, modelId ) {
 	return when.reject( new Error( "Not supported" ) );
 }
 
@@ -73,20 +73,20 @@ function getVersion( vector ) {
 	}, 0 );
 }
 
-function store( pending, sliver, db, table, actorId, vectorClock, actor ) {
+function store( pending, sliver, db, table, modelId, vectorClock, model ) {
 	var version = getVersion( vectorClock || "" );
-	actor.snapshotId = sliver.getId();
-	actor.id = actorId;
-	actor.version = version;
-	actor.ancestor = actor.ancestor || "";
-	actor.vector = vectorClock.toString();
-	actor = _.omitBy( actor, ( v ) => !v );
+	model.snapshotId = sliver.getId();
+	model.id = modelId;
+	model._version = version;
+	model._ancestor = model._ancestor || "";
+	model._vector = vectorClock.toString();
+	model = _.omitBy( model, ( v ) => !v );
 	return pending
 		.then( 
 			( c ) => rethink
 				.db( db )
 				.table( table )
-				.insert( actor )
+				.insert( model )
 				.run( c )
 		)
 }
